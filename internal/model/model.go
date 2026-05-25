@@ -33,6 +33,10 @@ type Booking struct {
 	CreatedAt time.Time          `bson:"created_at" json:"createdAt"`
 }
 
+type RegisterShowRequest struct {
+	SeatCount int `json:"seatCount"`
+}
+
 type RegisterShowResponse struct {
 	Show  Show   `json:"show"`
 	Seats []Seat `json:"seats"`

@@ -28,6 +28,11 @@ var (
 		Message:    "show not found",
 		HTTPStatus: http.StatusNotFound,
 	}
+	ErrInvalidRequestBody = &AppError{
+		Code:       "INVALID_REQUEST_BODY",
+		Message:    "invalid request body",
+		HTTPStatus: http.StatusBadRequest,
+	}
 )
 
 func ErrInvalidID(name string) *AppError {
