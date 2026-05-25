@@ -13,16 +13,16 @@ import (
 )
 
 type Handler struct {
-	showRepo       repository.ShowRepo
-	seatRepo       repository.SeatRepo
-	bookingRepo    repository.BookingRepo
+	showRepo       *repository.ShowRepo
+	seatRepo       *repository.SeatRepo
+	bookingRepo    *repository.BookingRepo
 	bookingService *service.BookingService
 }
 
 func NewHandler(
-	shr repository.ShowRepo,
-	ser repository.SeatRepo,
-	br repository.BookingRepo,
+	shr *repository.ShowRepo,
+	ser *repository.SeatRepo,
+	br *repository.BookingRepo,
 	bs *service.BookingService,
 ) *Handler {
 	return &Handler{
