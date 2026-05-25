@@ -29,3 +29,11 @@ var (
 		HTTPStatus: http.StatusNotFound,
 	}
 )
+
+func ErrInvalidID(name string) *AppError {
+	return &AppError{
+		Code:       "INVALID_ID",
+		Message:    "invalid " + name + " id",
+		HTTPStatus: http.StatusBadRequest,
+	}
+}
