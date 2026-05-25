@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"errors"
+	"seojoonrp/ticket-rush-lab/internal/apperr"
 	"seojoonrp/ticket-rush-lab/internal/model"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -36,6 +38,31 @@ func (r *SeatRepo) CreateMany(ctx context.Context, showID primitive.ObjectID, co
 	}
 
 	return seats, nil
+}
+
+func (r *SeatRepo) UpdateOnBook(ctx context.Context, id primitive.ObjectID, userID string) error {
+	update := bson.M{"$set": bson.M{
+		"status":  model.SeatOccupied,
+		"user_id": userID,
+	}}
+
+	if _, err := r.coll.UpdateOne(ctx, bson.M{"_id": id}, update); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *SeatRepo) FindByID(ctx context.Context, id primitive.ObjectID) (*model.Seat, error) {
+	var seat model.Seat
+	if err := r.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&seat); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, apperr.ErrSeatNotFound
+		}
+		return nil, err
+	}
+
+	return &seat, nil
 }
 
 func (r *SeatRepo) FindByIDs(ctx context.Context, ids []primitive.ObjectID) ([]model.Seat, error) {

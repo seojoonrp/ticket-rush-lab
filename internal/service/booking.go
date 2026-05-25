@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"seojoonrp/ticket-rush-lab/internal/apperr"
 	"seojoonrp/ticket-rush-lab/internal/model"
 	"seojoonrp/ticket-rush-lab/internal/repository"
 
@@ -27,7 +28,25 @@ func NewBookingService(
 }
 
 func (s *BookingService) Book(ctx context.Context, seatID primitive.ObjectID, userID string) error {
+	seat, err := s.seatRepo.FindByID(ctx, seatID)
+	if err != nil {
+		return err
+	}
 
+	switch seat.Status {
+	case model.SeatAvailable:
+		if err := s.seatRepo.UpdateOnBook(ctx, seatID, userID); err != nil {
+			return err
+		}
+
+		if _, err := s.bookingRepo.Create(ctx, seat.ShowID, seatID, userID); err != nil {
+			return err
+		}
+	case model.SeatOccupied:
+		return apperr.ErrSeatTaken
+	}
+
+	return nil
 }
 
 func (s *BookingService) Verify(ctx context.Context, showID primitive.ObjectID) (*model.VerifyShowResponse, error) {
