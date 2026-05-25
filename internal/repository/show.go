@@ -32,14 +32,9 @@ func (r *ShowRepo) Create(ctx context.Context, seatCount int) (*model.Show, erro
 	return &show, nil
 }
 
-func (r *ShowRepo) FindByID(ctx context.Context, id string) (*model.Show, error) {
-	shID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, apperr.ErrInvalidID("show")
-	}
-
+func (r *ShowRepo) FindByID(ctx context.Context, id primitive.ObjectID) (*model.Show, error) {
 	var show model.Show
-	if err := r.coll.FindOne(ctx, bson.M{"_id": shID}).Decode(&show); err != nil {
+	if err := r.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&show); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, apperr.ErrShowNotFound
 		}

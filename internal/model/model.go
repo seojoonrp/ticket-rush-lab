@@ -28,6 +28,7 @@ type Seat struct {
 
 type Booking struct {
 	ID        primitive.ObjectID `bson:"_id" json:"id"`
+	ShowID    primitive.ObjectID `bson:"show_id" json:"showId"`
 	SeatID    primitive.ObjectID `bson:"seat_id" json:"seatId"`
 	UserID    string             `bson:"user_id" json:"userId"`
 	CreatedAt time.Time          `bson:"created_at" json:"createdAt"`
@@ -42,9 +43,14 @@ type RegisterShowResponse struct {
 	Seats []Seat `json:"seats"`
 }
 
+type SeatBookingCount struct {
+	SeatID primitive.ObjectID `bson:"_id"`
+	Count  int                `bson:"Count"`
+}
+
 type OversoldSeat struct {
 	SeatID       primitive.ObjectID `json:"seatId"`
-	SeatNumber   int                `json:"seatNumber"`
+	Number       int                `json:"Number"`
 	BookingCount int                `json:"bookingCount"`
 }
 
