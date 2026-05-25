@@ -60,9 +60,10 @@ func main() {
 	seatRepo := repository.NewSeatRepo(db)
 	bookingRepo := repository.NewBookingRepo(db)
 
+	showService := service.NewShowService(showRepo, seatRepo)
 	bookingService := service.NewBookingService(showRepo, seatRepo, bookingRepo)
 
-	handler := handler.NewHandler(showRepo, seatRepo, bookingRepo, bookingService)
+	handler := handler.NewHandler(showService, bookingService)
 
 	e.POST("/shows", handler.RegisterShow)
 	e.GET("/shows/:id/verify", handler.Verify)

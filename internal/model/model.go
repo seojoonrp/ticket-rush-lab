@@ -45,12 +45,12 @@ type RegisterShowResponse struct {
 
 type SeatBookingCount struct {
 	SeatID primitive.ObjectID `bson:"_id"`
-	Count  int                `bson:"Count"`
+	Count  int                `bson:"count"`
 }
 
 type OversoldSeat struct {
 	SeatID       primitive.ObjectID `json:"seatId"`
-	Number       int                `json:"Number"`
+	Number       int                `json:"number"`
 	BookingCount int                `json:"bookingCount"`
 }
 

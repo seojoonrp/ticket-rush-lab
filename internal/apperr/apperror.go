@@ -33,6 +33,11 @@ var (
 		Message:    "invalid request body",
 		HTTPStatus: http.StatusBadRequest,
 	}
+	ErrInvalidSeatCount = &AppError{
+		Code:       "INVALID_SEAT_COUNT",
+		Message:    "seat count must be greater than 0",
+		HTTPStatus: http.StatusBadRequest,
+	}
 	ErrUnauthorized = &AppError{
 		Code:       "UNAUTHORIZED",
 		Message:    "missing X-User-ID header",
