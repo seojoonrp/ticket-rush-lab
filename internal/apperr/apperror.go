@@ -33,6 +33,11 @@ var (
 		Message:    "invalid request body",
 		HTTPStatus: http.StatusBadRequest,
 	}
+	ErrUnauthorized = &AppError{
+		Code:       "UNAUTHORIZED",
+		Message:    "missing X-User-ID header",
+		HTTPStatus: http.StatusUnauthorized,
+	}
 )
 
 func ErrInvalidID(name string) *AppError {

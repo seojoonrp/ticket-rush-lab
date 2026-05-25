@@ -26,6 +26,10 @@ func NewBookingService(
 	}
 }
 
+func (s *BookingService) Book(ctx context.Context, seatID primitive.ObjectID, userID string) error {
+
+}
+
 func (s *BookingService) Verify(ctx context.Context, showID primitive.ObjectID) (*model.VerifyShowResponse, error) {
 	show, err := s.showRepo.FindByID(ctx, showID)
 	if err != nil {

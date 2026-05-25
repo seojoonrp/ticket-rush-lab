@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"seojoonrp/ticket-rush-lab/internal/apperr"
+	"seojoonrp/ticket-rush-lab/internal/middleware"
 	"seojoonrp/ticket-rush-lab/internal/model"
 	"seojoonrp/ticket-rush-lab/internal/repository"
 	"seojoonrp/ticket-rush-lab/internal/service"
@@ -52,6 +53,21 @@ func (h *Handler) RegisterShow(c echo.Context) error {
 		Show:  *show,
 		Seats: seats,
 	})
+}
+
+func (h *Handler) Book(c echo.Context) error {
+	seatID, err := primitive.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		return apperr.ErrInvalidID("seat")
+	}
+
+	userID := middleware.GetUserID(c)
+
+	if err := h.bookingService.Book(c.Request().Context(), seatID, userID); err != nil {
+		return err
+	}
+
+	return c.NoContent(http.StatusOK)
 }
 
 func (h *Handler) Verify(c echo.Context) error {
