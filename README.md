@@ -65,9 +65,11 @@ go run ./cmd/server/main.go
 부하 재현은 `loadtest` 안의 shell 스크립트를 통해 수행한다.
 
 ```
-./loadtest/reproduce_hotspot.sh    # hotspot (한 좌석에 집중 요청)
-./loadtest/reproduce_spread.sh     # spread (여러 좌석에 분산)
+./loadtest/reproduce_hotspot.sh    # hotspot (한 좌석에 집중 요청 - 500개의 요청이 동시에 들어오는 시나리오)
+./loadtest/reproduce_spread.sh     # spread (여러 좌석에 분산 - 100개 좌석에 35초간 최대 500 VU로 계속해서 요청)
 ```
+
+> 측정 환경은 WSL2다. k6 지연 측정에서 시계 점프로 인한 음수 시간이 일부 관찰됐는데, 중앙값/p95/처리량 같은 핵심 지표는 영향을 받지 않아 그대로 사용한다.
 
 ## 1. Naive implementation (260526)
 
@@ -79,7 +81,7 @@ Naive한 예매 로직은 아래와 같은 단계로 수행된다.
 
 문제는 검사와 점유 사이에 틈이 있다는 것이다. 한 요청이 비어있다고 판단한 직후, 점유를 기록하기 전에 다른 요청이 끼어들면 그 요청도 비어있다고 판단하는 race condition이 생긴다. 결국 둘 다 통과해서 같은 좌석에 booking이 두 건 박힌다.
 
-**Hotspot - 좌석 1개에 동시 요청 500개**
+**Hotspot**
 
 ```
 seatCount: 1
@@ -89,7 +91,7 @@ oversoldSeats: [{ number: 1, bookingCount: 16 }]
 
 좌석 하나에 16건의 예매가 기록되는 기념비적인 oversell이 일어났다. 484건은 정상적으로 409 Conflict를 받았지만, 16건이 동시에 검사를 통과해 버린 것이다.
 
-**Spread - 좌석 100개에 최대 500 VU로 약 26만 7천 요청**
+**Spread**
 
 ```
 seatCount: 100
@@ -102,4 +104,43 @@ oversoldCount: 2 (좌석 2개가 각각 2건 중복)
 
 이 수치는 이후 단계의 기준선이다. 2단계에서 원자적 연산을 적용하면 oversell이 0이 되어야 하고, 그때 처리량과 지연이 어떻게 변하는지가 다음 비교 대상이다.
 
-> 측정 환경은 WSL2다. k6 지연 측정에서 시계 점프로 인한 음수 시간이 일부 관찰됐는데, 중앙값/p95/처리량 같은 핵심 지표는 영향을 받지 않아 그대로 사용한다.
+## 2. DB-level atomic implementation (260527)
+
+1단계의 문제는 검사와 점유가 두 번의 DB 왕복으로 쪼개져 있다는 것이었다. 그 사이의 틈이 race condition의 발생 지점이다. 그렇다면 틈을 없애려면 검사와 점유를 하나의 연산으로 합치면 된다.
+
+방법은 의외로 단순하다. 검사 조건을 update의 필터 안으로 밀어넣는다.
+
+```go
+filter := bson.M{
+  "_id":    id,
+  "status": model.SeatAvailable,
+}
+```
+
+**Hotspot**
+
+```
+seatCount: 1
+booked_success: 1
+oversoldCount: 0
+isValid: true
+```
+
+500개의 동시 요청 중 정확히 1건만 좌석을 잡고 나머지 499건은 의도된대로 409를 받았다. oversell 방지 성공!
+
+**Spread**
+
+```
+seatCount: 100
+http_reqs: 265,808 (약 7,944 req/s)
+http_req_duration p95: 112ms
+oversoldCount: 0
+```
+
+100개 좌석에 분산시킨 26만 건의 요청에서도 oversold가 사라졌다. 좌석 100개에 정확히 100건의 booking이 박혔다.
+
+흥미로운 건 성능이다. 정확성을 얻으면 성능을 잃는다는 trade-off의 직관과 달리, spread의 처리량과 지연은 1단계와 거의 동일했다(8,100 - 7,944 req/s, p95 111 - 112ms). 사실상 측정 노이즈 범위 안이라고 할 수 있다. 분산 부하에서는 좌석마다 경합이 흩어져 있어 조건부 update의 직렬화 비용이 잘 드러나지 않기 때문이다. 정확성을 사실상 공짜로 얻었다.
+
+그런데 hotspot은 다른 그림을 보여준다. 한 좌석에 모든 요청이 몰리는 상황에서는 p95 latency가 66ms에서 113ms로 늘었다. 1단계의 update는 조건이 없어서 서로를 막지 않고 그냥 덮어쓰고 지나갔지만, 2단계의 조건부 update는 같은 문서를 두고 진짜로 경합을 해버린다. 그 비용이 한 점에 몰릴 때 지연으로 드러난 것이라 추정된다. 물론 hotspot은 요청 수가 워낙 적기 때문에 이를 정량적으로 분석하는 데는 좀 무리가 있다. 그래도 확실하게 지연이 생긴 건 알아볼 수 있다.
+
+결론적으로 정확성을 위해 도입한 atomicity로 인해 hotspot 시나리오에서 약간의 지연이 생기는 trade-off가 있었다. 이 비용을 어떻게 줄일 것인가가 다음 단계의 출발점이다. 3단계에서는 redis를 도입해 재고 차감을 메모리로 끌어올려, 매진된 좌석을 향한 요청이 DB까지 내려가기 전에 빠르게 처리되도록 한다.

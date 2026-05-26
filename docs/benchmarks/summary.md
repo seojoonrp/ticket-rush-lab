@@ -32,6 +32,6 @@
 각 단계별로 바꾼 것과 trade-off 정리.
 
 - **1. Naive** — race condition 그대로. oversell 발생
-- **2. DB Atomic** —
+- **2. DB Atomic** — filter 조건 추가. oversell 차단됨. spread에서는 latency가 비슷했으나 hotspot에서 p95 latency가 늘어나는 trade-off 발생
 - **3. Redis** —
 - **4. Worker pool** —
