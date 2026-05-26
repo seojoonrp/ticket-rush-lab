@@ -11,19 +11,19 @@
 
 ## Hotspot
 
-| 단계           | oversold 좌석 수 | 최대 중복 | isValid | p95 latency (total) | p95 latency (200 OK) |
-| -------------- | ---------------- | --------- | ------- | ------------------- | -------------------- |
-| 1. Naive       | 1                | 16        | false   | 66ms                | 100ms                |
-| 2. DB Atomic   |                  |           |         |                     |                      |
-| 3. Redis       |                  |           |         |                     |                      |
-| 4. Worker pool |                  |           |         |                     |                      |
+| 단계           | oversold 좌석 수 | 최대 중복 | isValid | p95 latency (total) |
+| -------------- | ---------------- | --------- | ------- | ------------------- |
+| 1. Naive       | 1                | 16        | false   | 66ms                |
+| 2. DB Atomic   | 0                | -         | true    | 113ms               |
+| 3. Redis       |                  |           |         |                     |
+| 4. Worker pool |                  |           |         |                     |
 
 ## Spread
 
 | 단계           | 총 요청 | 처리량(req/s) | p95 latency | oversold 좌석 수 |
 | -------------- | ------- | ------------- | ----------- | ---------------- |
 | 1. Naive       | 267,368 | 8,100         | 111ms       | 2                |
-| 2. DB Atomic   |         |               |             |                  |
+| 2. DB Atomic   | 265,808 | 7,944         | 112ms       | 0                |
 | 3. Redis       |         |               |             |                  |
 | 4. Worker pool |         |               |             |                  |
 
