@@ -35,8 +35,12 @@ func (s *BookingService) Book(ctx context.Context, seatID primitive.ObjectID, us
 
 	switch seat.Status {
 	case model.SeatAvailable:
-		if err := s.seatRepo.UpdateOnBook(ctx, seatID, userID); err != nil {
+		ok, err := s.seatRepo.TryOccupy(ctx, seatID, userID)
+		if err != nil {
 			return err
+		}
+		if !ok {
+			return apperr.ErrSeatTaken
 		}
 
 		if _, err := s.bookingRepo.Create(ctx, seat.ShowID, seatID, userID); err != nil {

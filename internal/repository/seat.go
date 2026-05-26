@@ -53,6 +53,24 @@ func (r *SeatRepo) UpdateOnBook(ctx context.Context, id primitive.ObjectID, user
 	return nil
 }
 
+func (r *SeatRepo) TryOccupy(ctx context.Context, id primitive.ObjectID, userID string) (bool, error) {
+	filter := bson.M{
+		"_id":    id,
+		"status": model.SeatAvailable,
+	}
+	update := bson.M{"$set": bson.M{
+		"status":  model.SeatOccupied,
+		"user_id": userID,
+	}}
+
+	res, err := r.coll.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return false, err
+	}
+
+	return res.MatchedCount == 1, nil
+}
+
 func (r *SeatRepo) FindByID(ctx context.Context, id primitive.ObjectID) (*model.Seat, error) {
 	var seat model.Seat
 	if err := r.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&seat); err != nil {
