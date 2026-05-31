@@ -15,7 +15,7 @@
 | -------------- | ---------------- | --------- | ------- | ------------------- |
 | 1. Naive       | 1                | 16        | false   | 66ms                |
 | 2. DB Atomic   | 0                | -         | true    | 113ms               |
-| 3. Redis       |                  |           |         |                     |
+| 3. Redis       | 0                | -         | true    | 160ms               |
 | 4. Worker pool |                  |           |         |                     |
 
 ## Spread
@@ -24,7 +24,7 @@
 | -------------- | ------- | ------------- | ----------- | ---------------- |
 | 1. Naive       | 267,368 | 8,100         | 111ms       | 2                |
 | 2. DB Atomic   | 265,808 | 7,944         | 112ms       | 0                |
-| 3. Redis       |         |               |             |                  |
+| 3. Redis       | 431,557 | 13,009        | 64ms        | 0                |
 | 4. Worker pool |         |               |             |                  |
 
 ## 요약
@@ -33,5 +33,5 @@
 
 - **1. Naive** — race condition 그대로. oversell 발생
 - **2. DB Atomic** — filter 조건 추가. oversell 차단됨. spread에서는 latency가 비슷했으나 hotspot에서 p95 latency가 늘어나는 trade-off 발생
-- **3. Redis** —
+- **3. Redis** — 좌석 점유 판정을 Redis로 처리. spread에서의 처리량 및 p95 latency 향상. DB write는 무조건 update로 되돌렸으나 게이트가 Redis라 oversell 0 유지.
 - **4. Worker pool** —

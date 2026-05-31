@@ -71,6 +71,8 @@ go run ./cmd/server/main.go
 
 > 측정 환경은 WSL2다. k6 지연 측정에서 시계 점프로 인한 음수 시간이 일부 관찰됐는데, 중앙값/p95/처리량 같은 핵심 지표는 영향을 받지 않아 그대로 사용한다.
 
+<br>
+
 ## 1. Naive implementation (260526)
 
 Naive한 예매 로직은 아래와 같은 단계로 수행된다.
@@ -103,6 +105,8 @@ oversoldCount: 2 (좌석 2개가 각각 2건 중복)
 경합을 100개 좌석으로 분산시키자 같은 race condition인데도 oversell이 훨씬 드물게 일어났다. Hotspot에서는 요청을 500개밖에 안 날렸는데도 16개의 요청이 중복됐지만, spread에서는 26만 건이 넘는 요청 중 단 2개 좌석만 2번씩 중복됐다. 경합이 한 점에 몰리느냐 흩어지느냐에 따라 발현 빈도가 크게 달라진다는 걸 보여준다.
 
 이 수치는 이후 단계의 기준선이다. 2단계에서 원자적 연산을 적용하면 oversell이 0이 되어야 하고, 그때 처리량과 지연이 어떻게 변하는지가 다음 비교 대상이다.
+
+<br>
 
 ## 2. DB-level atomic implementation (260527)
 
@@ -144,3 +148,59 @@ oversoldCount: 0
 그런데 hotspot은 다른 그림을 보여준다. 한 좌석에 모든 요청이 몰리는 상황에서는 p95 latency가 66ms에서 113ms로 늘었다. 1단계의 update는 조건이 없어서 서로를 막지 않고 그냥 덮어쓰고 지나갔지만, 2단계의 조건부 update는 같은 문서를 두고 진짜로 경합을 해버린다. 그 비용이 한 점에 몰릴 때 지연으로 드러난 것이라 추정된다. 물론 hotspot은 요청 수가 워낙 적기 때문에 이를 정량적으로 분석하는 데는 좀 무리가 있다. 그래도 확실하게 지연이 생긴 건 알아볼 수 있다.
 
 결론적으로 정확성을 위해 도입한 atomicity로 인해 hotspot 시나리오에서 약간의 지연이 생기는 trade-off가 있었다. 이 비용을 어떻게 줄일 것인가가 다음 단계의 출발점이다. 3단계에서는 redis를 도입해 재고 차감을 메모리로 끌어올려, 매진된 좌석을 향한 요청이 DB까지 내려가기 전에 빠르게 처리되도록 한다.
+
+> **3단계 구현 이후의 회고... (260531)** <br> Hotspot에서의 p95 latency는 크게 의미가 없다. 요청을 500개밖에 안 날려서 표본이 너무 적기 때문이다. 작은 노이즈에도 결과가 너무 달라지기 때문에 좋은 성능 지표가 될 수 없고, 따라서 이를 trade-off라 말하기도 애매하다. 실제로 Redis를 적용한 3단계 결과를 보면 spread의 성능은 확실하게 올라가지만 hotspot의 p95 latency는 오히려 늘어난다.
+
+<br>
+
+## 3. Redis (260531)
+
+2단계는 정확성을 잡았지만 비용을 남겼다. hotspot에서 조건부 update의 직렬화로 지연이 늘었고, 더 근본적으로는 spread에서 매진 이후 들어오는 요청 - 26만 건의 99.97% - 이 전부 DB까지 내려가 조건부 update를 날리고 이선좌(MatchedCount 0) 에러를 받아갔다. 티켓팅 서버의 진짜 부하는 표를 잡는 소수가 아니라, 매진인데도 새로고침하며 들이치는 다수다. 그 다수를 DB까지 보내지 않고 Redis를 사용해 메모리에서 거르는 게 이 단계의 목표다.
+
+Redis는 명령 실행이 단일 스레드라 개별 명령이 atomic하게 처리된다. 즉 `SET key NX`는 키가 없을 때만 set하고 성공 여부를 돌려주는 atomic test-and-set이라, 기존 로직을 그대로 대체할 수 있다.
+
+```go
+// Seat Claim Repository
+func (r *SeatClaimRepo) Claim(ctx context.Context, seatID primitive.ObjectID, userID string) (bool, error) {
+	key := "seat:" + seatID.Hex()
+	// value를 userID로 설정해 디버깅이 편하도록 (누가 이 좌석을 선점했는지 파악 가능)
+	// expiration을 0으로 설정하면 만료되지 않음
+	return r.rdb.SetNX(ctx, key, userID, 0).Result()
+}
+
+// seat:<id> 키를 NX로 선점. true면 예매 성공, false면 이선좌
+claimed, _ := claimRepo.Claim(ctx, seatID, userID)
+if !claimed {
+    return apperr.ErrSeatTaken // 409, DB를 건드리지 않는다
+}
+```
+
+예매 판정이 Redis로 넘어가면서 MongoDB는 동시성 방어선에서 내려와 그냥 저장소가 됐다. 그래서 1단계 이후로 쓸 일이 없을 것 같았던 UpdateOnBook 메서드를 부활시켜 다시 사용했다. 이래서 안 쓰는 코드 함부로 지우면 안되는 것 같다.
+
+**Hotspot**
+
+```
+seatCount: 1
+booked_success: 1
+oversoldCount: 0
+isValid: true
+```
+
+MongoDB에 저장하는 메서드는 1단계의 것을 그대로 썼는데, Redis에서 유효성 판단을 해주므로 정확성이 유지됐다.
+
+**Spread**
+
+```
+seatCount: 100
+http_reqs: 431,557 (약 13,009 req/s)
+http_req_duration p95: 64ms
+oversoldCount: 0
+```
+
+여기서 효과가 드러난다. 처리량이 7,944에서 13,009 req/s로 뛰고 p95가 112ms에서 64ms로 거의 반토막 났다. 이선좌 요청 43만 건이 빠른 Redis에서 잘려나가고 MongoDB는 좌석을 실제로 잡은 100명만 봤기 때문이다. 매진 트래픽을 메모리에서 거르는 것만으로 정확성을 유지한 채 성능까지 압도적으로 끌어올렸다.
+
+hotspot의 p95 latency(160ms)는 2단계 회고에 적어둔 대로 오히려 전보다 늘었지만, 이는 표본 부족으로 인해 정량적 분석이 의미 없는 데이터다. Redis의 단일 키 방식이 가지는 본질적인 문제라 4단계에서도 딱히 좋아지지는 않을 거라 예상된다. hotspot은 최악의 경합 케이스로 남겨둔다.
+
+> hotspot 지연이 go-redis 커넥션 풀 경합 때문인지 의심돼 풀을 기본값(GOMAXPROCS 확인 결과 120)에서 600으로 키워봤다. 하지만 표본이 안정적인 spread의 처리량이 움직이지 않아(13,009 to 12,281) 가설을 기각했다. 병목은 커넥션 풀이 아니라 요청 경로 자체에 있는 것 같다.
+
+근데 아직 write가 동기다. 좌석 예매 성공 시 여전히 요청 안에서 seat update와 booking insert를 끝내고서야 응답을 받는다. 4단계에서는 이 무거운 write를 worker pool로 넘겨 비동기로 처리하고, 응답을 그만큼 앞당긴다.
