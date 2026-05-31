@@ -22,15 +22,22 @@ func main() {
 		log.Fatal("error loading .env file")
 	}
 
-	dbURI := os.Getenv("DB_URI")
-	dbName := os.Getenv("DB_NAME")
+	mongoURI := os.Getenv("MONGO_URI")
+	mongoDBName := os.Getenv("MONGO_DB_NAME")
+	redisAddr := os.Getenv("REDIS_ADDR")
 
 	// database setup
-	db, err := database.Connect(dbURI, dbName)
+	mdb, err := database.ConnectMongo(mongoURI, mongoDBName)
 	if err != nil {
 		panic(err)
 	}
-	defer database.Disconnect(db)
+	defer database.DisconnectMongo(mdb)
+
+	rdb, err := database.ConnectRedis(redisAddr)
+	if err != nil {
+		panic(err)
+	}
+	defer rdb.Close()
 
 	// echo setup
 	e := echo.New()
@@ -56,12 +63,13 @@ func main() {
 	e.Use(middleware.Recover())
 
 	// routes setup
-	showRepo := repository.NewShowRepo(db)
-	seatRepo := repository.NewSeatRepo(db)
-	bookingRepo := repository.NewBookingRepo(db)
+	showRepo := repository.NewShowRepo(mdb)
+	seatRepo := repository.NewSeatRepo(mdb)
+	bookingRepo := repository.NewBookingRepo(mdb)
+	claimRepo := repository.NewSeatClaimRepo(rdb)
 
 	showService := service.NewShowService(showRepo, seatRepo)
-	bookingService := service.NewBookingService(showRepo, seatRepo, bookingRepo)
+	bookingService := service.NewBookingService(showRepo, seatRepo, bookingRepo, claimRepo)
 
 	handler := handler.NewHandler(showService, bookingService)
 

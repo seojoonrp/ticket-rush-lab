@@ -40,6 +40,19 @@ func (r *SeatRepo) CreateMany(ctx context.Context, showID primitive.ObjectID, co
 	return seats, nil
 }
 
+func (r *SeatRepo) UpdateOnBook(ctx context.Context, id primitive.ObjectID, userID string) error {
+	update := bson.M{"$set": bson.M{
+		"status":  model.SeatOccupied,
+		"user_id": userID,
+	}}
+
+	if _, err := r.coll.UpdateOne(ctx, bson.M{"_id": id}, update); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (r *SeatRepo) TryOccupy(ctx context.Context, id primitive.ObjectID, userID string) (bool, error) {
 	filter := bson.M{
 		"_id":    id,

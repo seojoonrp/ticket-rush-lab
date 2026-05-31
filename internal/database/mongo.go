@@ -10,7 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
-func Connect(uri, dbName string) (*mongo.Database, error) {
+func ConnectMongo(uri, dbName string) (*mongo.Database, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -26,7 +26,7 @@ func Connect(uri, dbName string) (*mongo.Database, error) {
 	return client.Database(dbName), nil
 }
 
-func Disconnect(db *mongo.Database) error {
+func DisconnectMongo(db *mongo.Database) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return db.Client().Disconnect(ctx)

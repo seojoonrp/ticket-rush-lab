@@ -13,41 +13,44 @@ type BookingService struct {
 	showRepo    *repository.ShowRepo
 	seatRepo    *repository.SeatRepo
 	bookingRepo *repository.BookingRepo
+	claimRepo   *repository.SeatClaimRepo
 }
 
 func NewBookingService(
 	shr *repository.ShowRepo,
 	ser *repository.SeatRepo,
 	br *repository.BookingRepo,
+	cr *repository.SeatClaimRepo,
 ) *BookingService {
 	return &BookingService{
 		showRepo:    shr,
 		seatRepo:    ser,
 		bookingRepo: br,
+		claimRepo:   cr,
 	}
 }
 
 func (s *BookingService) Book(ctx context.Context, seatID primitive.ObjectID, userID string) error {
+	claimed, err := s.claimRepo.Claim(ctx, seatID, userID)
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		return apperr.ErrSeatTaken
+	}
+
 	seat, err := s.seatRepo.FindByID(ctx, seatID)
 	if err != nil {
 		return err
 	}
 
-	switch seat.Status {
-	case model.SeatAvailable:
-		ok, err := s.seatRepo.TryOccupy(ctx, seatID, userID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return apperr.ErrSeatTaken
-		}
+	if err := s.seatRepo.UpdateOnBook(ctx, seatID, userID); err != nil {
+		return err
+	}
 
-		if _, err := s.bookingRepo.Create(ctx, seat.ShowID, seatID, userID); err != nil {
-			return err
-		}
-	case model.SeatOccupied:
-		return apperr.ErrSeatTaken
+	_, err = s.bookingRepo.Create(ctx, seat.ShowID, seatID, userID)
+	if err != nil {
+		return err
 	}
 
 	return nil

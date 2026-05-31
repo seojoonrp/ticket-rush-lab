@@ -19,5 +19,11 @@ services:
       retries: 10
       start_period: 5s
 
+  redis:
+    image: redis:7
+    container_name: ticket-rush-redis
+    ports:
+      - "6379:6379"
+
 volumes:
   mongo-data:
