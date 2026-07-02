@@ -30,6 +30,12 @@ k6 run \
   "${SCRIPT_DIR}/spread.js"
 echo
 
+echo "Draining write queue..."
+until [ "$(curl -s "${BASE}/health/queue" | jq '.depth')" -eq 0 ]; do
+  sleep 0.2
+done
+echo
+
 echo "3) Verification"
 VERIFY_RES=$(curl -s "${BASE}/shows/${SHOW_ID}/verify")
 echo "${VERIFY_RES}" | jq .

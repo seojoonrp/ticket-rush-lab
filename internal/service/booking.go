@@ -14,6 +14,7 @@ type BookingService struct {
 	seatRepo    *repository.SeatRepo
 	bookingRepo *repository.BookingRepo
 	claimRepo   *repository.SeatClaimRepo
+	pool        *WorkerPool
 }
 
 func NewBookingService(
@@ -21,12 +22,14 @@ func NewBookingService(
 	ser *repository.SeatRepo,
 	br *repository.BookingRepo,
 	cr *repository.SeatClaimRepo,
+	wp *WorkerPool,
 ) *BookingService {
 	return &BookingService{
 		showRepo:    shr,
 		seatRepo:    ser,
 		bookingRepo: br,
 		claimRepo:   cr,
+		pool:        wp,
 	}
 }
 
@@ -39,19 +42,10 @@ func (s *BookingService) Book(ctx context.Context, seatID primitive.ObjectID, us
 		return apperr.ErrSeatTaken
 	}
 
-	seat, err := s.seatRepo.FindByID(ctx, seatID)
-	if err != nil {
-		return err
-	}
-
-	if err := s.seatRepo.UpdateOnBook(ctx, seatID, userID); err != nil {
-		return err
-	}
-
-	_, err = s.bookingRepo.Create(ctx, seat.ShowID, seatID, userID)
-	if err != nil {
-		return err
-	}
+	s.pool.Submit(Job{
+		seatID: seatID,
+		userID: userID,
+	})
 
 	return nil
 }

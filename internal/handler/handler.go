@@ -14,15 +14,18 @@ import (
 type Handler struct {
 	showService    *service.ShowService
 	bookingService *service.BookingService
+	pool           *service.WorkerPool
 }
 
 func NewHandler(
 	ss *service.ShowService,
 	bs *service.BookingService,
+	wp *service.WorkerPool,
 ) *Handler {
 	return &Handler{
 		showService:    ss,
 		bookingService: bs,
+		pool:           wp,
 	}
 }
 
@@ -53,6 +56,10 @@ func (h *Handler) Book(c echo.Context) error {
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) QueueDepth(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]int{"depth": h.pool.QueueDepth()})
 }
 
 func (h *Handler) Verify(c echo.Context) error {
