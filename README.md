@@ -247,3 +247,7 @@ oversoldCount: 0
 ```
 
 write를 요청 밖으로 뺐는데도 정확성이 그대로다. hotspot은 승자 1명에 oversold 0, spread는 좌석 100개가 정확히 다 팔리고 oversold 0, 둘 다 isValid: true. 방어선이 Redis에 있으니 write를 언제 하든 결과가 안 바뀐다. Drain polling 덕분에 spread에서도 정확성이 유지된다.
+
+그런데 total 지표는 3단계와 사실상 구분이 안 된다. spread 처리량 11,883 req/s, total p95 70.99ms는 3단계(약 13,009 req/s, 64ms)와 노이즈 범위 안에서 겹치고 오히려 살짝 낮게도 나온다. 이유는 부하의 99.97%가 패자(409)라 승자 write를 아무리 비동기로 처리해도 total에는 영향을 미치지 않기 때문이다. 병목은 패자 경로(Redis 직렬화)에 있지 승자 write에 있지 않다. 4단계는 승자 경로만 건드렸는데 승자가 100명뿐이라 total 지표는 그 개선을 못 본다.
+
+진짜 봐야 할 숫자는 처리량이 아니라 승자의 200 OK latency다. spread에서 `{ expected_response:true }`(200을 받은 승자들)의 p95는 1, 2, 3단계 각각 10.7, 11.45, 12.68ms로 10ms대에 묶여 있었다. 승자가 매 단계 Mongo write를 동기로 기다렸기 때문이다. 4단계에서 그 write를 worker pool로 빼자 3.22ms로 크게 감소했다. 승자가 write 세 방을 안 기다리고 claim 직후 리턴하니 200 응답이 이만큼 빨라진 것이다.
