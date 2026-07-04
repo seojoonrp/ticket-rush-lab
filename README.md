@@ -24,6 +24,40 @@ Go로 API 서버를 만들다 보니 goroutine이나 channel을 정작 제대로
 
 각 단계 사이에서 같은 부하를 주고 정확성과 성능이 어떻게 바뀌는지 기록한다.
 
+## 벤치마크 결과 요약
+
+각 단계에서 동일 조건으로 **5회 반복 측정했을 때 median**이다.
+Raw data는`bench/out/raw.csv`에서 확인할 수 있다.
+
+**측정 조건**
+
+- 환경: WSL2, Go 1.x, MongoDB 7 (Single node replica set, Docker) + Redis 7
+- 부하 도구: k6
+- Hotspot: 좌석 1개, 동시 요청 500 (shared-iterations, VU 500)
+- Spread: 좌석 100개, 최대 500 VU, ramping (10s↑ / 20s 유지 / 5s↓)
+
+### Hotspot
+
+| 단계           | oversold 좌석 수 | 최대 중복 | isValid |
+| -------------- | ---------------- | --------- | ------- |
+| 1. Naive       | 1                | 18        | false   |
+| 2. DB Atomic   | 0                | -         | true    |
+| 3. Redis       | 0                | -         | true    |
+| 4. Worker pool | 0                | -         | true    |
+
+> Hotspot은 latency를 제외했다. 총 500요청이 약 0.1초 만에 끝나 표본이 작아 p95가 노이즈에 지배되기 때문이다. 실제로 단계 간 median 차이보다 run 간 편차가 더 크다. Hotspot에서 볼 것은 정합성이다.
+
+### Spread
+
+| 단계           | 총 요청 | 처리량 (req/s) | p95 (total) | p95 (200 OK) | oversold 좌석 수 |
+| -------------- | ------- | -------------- | ----------- | ------------ | ---------------- |
+| 1. Naive       | 341,682 | 10,262         | 83.2ms      | 8.8ms        | 1                |
+| 2. DB Atomic   | 336,825 | 10,116         | 84.1ms      | 9.2ms        | 0                |
+| 3. Redis       | 508,549 | 15,480         | 51.5ms      | 9.7ms        | 0                |
+| 4. Worker pool | 517,581 | 15,559         | 51.7ms      | 1.7ms        | 0                |
+
+단계별 상세 분석은 아래 [Naive](#1-naive-implementation-260526) ~ [Worker pool](#4-worker-pool-260702) 섹션에서 다룬다.
+
 ## 구조
 
 ```
@@ -36,7 +70,7 @@ internal/
   model             도메인 타입
   apperr            에러 타입과 중앙 error handler
 loadtest            k6 부하 스크립트와 재현용 shell 스크립트
-docs/benchmarks     단계별 측정 결과
+bench               벤치마크 재현 harness
 ```
 
 좌석을 한 명만 차지할 수 있는 독립된 슬롯으로 보고, `seats`를 별도 컬렉션으로 뒀다. 이렇게 하면 좌석마다 경합이 독립적이라 "한 좌석에 몰리는 부하"와 "전체 트래픽 부하"를 나눠서 실험할 수 있다.
