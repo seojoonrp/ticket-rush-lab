@@ -1,4 +1,6 @@
 results/
-out/
+out/*
+!out/raw.csv
 server
 server.log
+.lock/
