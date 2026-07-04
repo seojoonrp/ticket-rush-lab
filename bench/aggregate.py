@@ -6,7 +6,7 @@ import csv, glob, json, os, re, statistics, sys
 
 ORDER = ["1-naive", "2-db_atomic", "3-redis", "4-worker_pool"]
 LABEL = {"1-naive": "1. Naive", "2-db_atomic": "2. DB Atomic",
-         "3-redis": "3. Redis", "4-worker_pool": "4. Worker pool"}
+         "3-redis": "3. Redis", "4-worker_pool": "4. Async write"}
 
 
 def val(d, name, stat):
@@ -59,32 +59,46 @@ def sub(rows, stage, scn):
     return [r for r in rows if r["stage"] == stage and r["scenario"] == scn]
 
 
+def occ(g):
+    xs = [r["oversold_count"] for r in g if r.get("oversold_count") is not None]
+    hit = sum(1 for x in xs if x and x > 0)
+    return hit, len(xs), (max(xs) if xs else 0)
+
+
+def dup_range(g):
+    xs = [r["max_dup"] for r in g if r.get("max_dup")]
+    if not xs:
+        return "-"
+    lo, hi = min(xs), max(xs)
+    return f"{lo}건" if lo == hi else f"{lo}~{hi}건"
+
+
 def hotspot_md(rows):
     out = ["## Hotspot", "",
-           "| 단계 | oversold 좌석 수 | 최대 중복 | isValid | p95 latency (total) |",
-           "| ---- | ---- | ---- | ---- | ---- |"]
+           "| 단계 | oversell 발생 | 좌석당 최대 중복 | isValid |",
+           "| ---- | ---- | ---- | ---- |"]
     for st in ORDER:
         g = sub(rows, st, "hotspot")
         if not g:
             continue
-        ov = med(g, "oversold_count")
-        dup = i(med(g, "max_dup")) if ov and ov > 0 else "-"
-        out.append(f"| {LABEL[st]} | {i(ov)} | {dup} | "
-                   f"{'true' if ov == 0 else 'false'} | {ms(med(g, 'p95_total_ms'))} |")
+        hit, n, _ = occ(g)
+        out.append(f"| {LABEL[st]} | {hit}/{n}회 | {dup_range(g)} | "
+                   f"{'false' if hit else 'true'} |")
     return "\n".join(out) + "\n"
 
 
 def spread_md(rows):
     out = ["## Spread", "",
-           "| 단계 | 총 요청 | 처리량(req/s) | p95 (total) | p95 (성공 200) | oversold 좌석 수 |",
+           "| 단계 | 총 요청 | 처리량(req/s) | p95 (total) | p95 (성공 200) | oversell 발생 |",
            "| ---- | ---- | ---- | ---- | ---- | ---- |"]
     for st in ORDER:
         g = sub(rows, st, "spread")
         if not g:
             continue
+        hit, n, mx = occ(g)
+        over = f"{hit}/{n}회 (최대 {mx}좌석)" if hit else f"0/{n}회"
         out.append(f"| {LABEL[st]} | {i(med(g, 'http_reqs'))} | {i(med(g, 'req_per_s'))} | "
-                   f"{ms(med(g, 'p95_total_ms'))} | {ms(med(g, 'p95_ok200_ms'))} | "
-                   f"{i(med(g, 'oversold_count'))} |")
+                   f"{ms(med(g, 'p95_total_ms'))} | {ms(med(g, 'p95_ok200_ms'))} | {over} |")
     return "\n".join(out) + "\n"
 
 
