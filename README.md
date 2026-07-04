@@ -1,10 +1,10 @@
 # ticket-rush-lab
 
-Go로 API 서버를 만들다 보니 goroutine이나 channel을 정작 제대로 써본 적이 없다는 걸 깨달았다. 컴퓨터조직론 과목에서 마침 cache consistency를 배우고 있어 동시성에 흥미가 생긴 김에 동시성을 제대로 공부해보고 싶어 시작한 프로젝트다. Go를 주력으로 쓰는 개발자가 동시성이 뭔지 모르는게 말이 되는가?
+그동안 만든 프로젝트들은 트래픽이 몰릴 일이 없었다. 적당히 구현해도 성능이나 정합성 문제가 드러나지 않는 환경이었기에 최적화를 해도 티가 안 나는 경우가 대부분이었다. 게다가 주력 언어로 Go를 쓰면서도 정작 그 강점인 동시성을 제대로 써본 적이 없다는 것도 항상 마음에 걸렸다. 컴퓨터조직론 과목에서 마침 cache consistency를 재밌게 배우며 동시성에 흥미가 생긴 김에, 고동시성·고트래픽 환경에 직접 부딪혀보고 싶어 시작한 프로젝트다. Go를 주력으로 쓰는 개발자가 동시성이 뭔지 모르는게 말이 되는가?
 
 주제는 티켓팅 서버. 한정된 좌석을 여러 사람이 동시에 예매하려고 몰려들 때 생기는 문제들을 직접 재현하고, 단계별로 해결해 나가면서 그 전후 변화를 기록한다.
 
-처음부터 완벽한 티켓팅 서버를 만드는 게 아니라, **동시성 문제를 일부러 터뜨린 다음 단계적으로 고치고, 개선해나가며 그 과정에서의 벤치마크 등의 변화를 측정해 기록하는 것**이다.
+처음부터 완벽한 티켓팅 서버를 만드는 게 아니라, **동시성 문제를 고려하지 않고 naive하게 구현한 후 생기는 문제점을 파악하고, 이를 단계적으로 정합성/성능 면에서 개선해나가며 그 과정에서의 벤치마크 변화를 측정해 기록하는 것**이다.
 
 ## 다루는 문제
 
@@ -12,19 +12,19 @@ Go로 API 서버를 만들다 보니 goroutine이나 channel을 정작 제대로
 
 이 문제는 두 가지 관점에서 개선될 수 있고, 본 프로젝트는 이를 순차적으로 수행한다.
 
-- **정확성**: oversell이 일어나는가. 한 좌석이 정확히 한 명에게만 팔리는가.
-- **성능**: 같은 정확성을 유지하면서 얼마나 많은 요청을, 얼마나 빠르게 처리하는가.
+- **정합성**: oversell이 일어나는가. 한 좌석이 정확히 한 명에게만 팔리는가.
+- **성능**: 정합성을 유지하면서 얼마나 많은 요청을, 얼마나 빠르게 처리하는가.
 
 ## 진행 단계
 
 1. **Naive implementation** - Race condition을 해결하지 않은 naive한 구현으로 oversell을 재현한다.
 2. **DB-level atomicity** - MongoDB의 단일 문서 atomic 연산으로 oversell을 막는다.
 3. **Redis** - 재고 차감 처리를 메모리로 끌어올려 성능을 향상한다.
-4. **Worker pool** - 무거운 write 작업을 worker pool로 비동기 처리한다.
+4. **Asynchronous write** - 무거운 write 작업을 worker pool로 비동기 처리한다.
 
-각 단계 사이에서 같은 부하를 주고 정확성과 성능이 어떻게 바뀌는지 기록한다.
+각 단계마다 같은 부하를 주고 정확성과 성능이 어떻게 바뀌는지 기록한다.
 
-## 벤치마크 결과 요약
+## 벤치마크 Summary
 
 각 단계에서 동일 조건으로 **5회 반복 측정했을 때 median**이다.
 Raw data는`bench/out/raw.csv`에서 확인할 수 있다.
@@ -33,8 +33,8 @@ Raw data는`bench/out/raw.csv`에서 확인할 수 있다.
 
 - 환경: WSL2, Go 1.x, MongoDB 7 (Single node replica set, Docker) + Redis 7
 - 부하 도구: k6
-- Hotspot: 좌석 1개, 동시 요청 500 (shared-iterations, VU 500)
-- Spread: 좌석 100개, 최대 500 VU, ramping (10s↑ / 20s 유지 / 5s↓)
+- Hotspot: 좌석 1개에 동시 요청 500 (shared-iterations, VU 500). 모두가 같은 좌석을 노리므로 정합성 검증에 효과적이다.
+- Spread: 좌석 100개에 최대 500 VU ramping (10s↑ / 20s 유지 / 5s↓). 경합이 흩어져 현실 티켓팅에 더 가깝고 성능 분석에 쓴다.
 
 ### Hotspot
 
@@ -43,7 +43,7 @@ Raw data는`bench/out/raw.csv`에서 확인할 수 있다.
 | 1. Naive       | 1                | 18        | false   |
 | 2. DB Atomic   | 0                | -         | true    |
 | 3. Redis       | 0                | -         | true    |
-| 4. Worker pool | 0                | -         | true    |
+| 4. Async write | 0                | -         | true    |
 
 > Hotspot은 latency를 제외했다. 총 500요청이 약 0.1초 만에 끝나 표본이 작아 p95가 노이즈에 지배되기 때문이다. 실제로 단계 간 median 차이보다 run 간 편차가 더 크다. Hotspot에서 볼 것은 정합성이다.
 
@@ -54,11 +54,11 @@ Raw data는`bench/out/raw.csv`에서 확인할 수 있다.
 | 1. Naive       | 341,682 | 10,262         | 83.2ms      | 8.8ms        | 1                |
 | 2. DB Atomic   | 336,825 | 10,116         | 84.1ms      | 9.2ms        | 0                |
 | 3. Redis       | 508,549 | 15,480         | 51.5ms      | 9.7ms        | 0                |
-| 4. Worker pool | 517,581 | 15,559         | 51.7ms      | 1.7ms        | 0                |
+| 4. Async write | 517,581 | 15,559         | 51.7ms      | 1.7ms        | 0                |
 
-단계별 상세 분석은 아래 [Naive](#1-naive-implementation-260526) ~ [Worker pool](#4-worker-pool-260702) 섹션에서 다룬다.
+단계별 상세 분석은 아래 [Naive](#1-naive-implementation-260526) ~ [Async write](#4-worker-pool-260702) 섹션에서 다룬다.
 
-## 구조
+## 프로젝트 구조
 
 ```
 cmd/server          진입점, DI
@@ -73,9 +73,7 @@ loadtest            k6 부하 스크립트와 재현용 shell 스크립트
 bench               벤치마크 재현 harness
 ```
 
-좌석을 한 명만 차지할 수 있는 독립된 슬롯으로 보고, `seats`를 별도 컬렉션으로 뒀다. 이렇게 하면 좌석마다 경합이 독립적이라 "한 좌석에 몰리는 부하"와 "전체 트래픽 부하"를 나눠서 실험할 수 있다.
-
-oversell을 감지하는 방식이 이 프로젝트의 한 축이다. 좌석의 상태 필드만 보면 나중에 쓴 사람이 앞사람을 덮어써서 중복의 흔적이 사라진다. 그래서 예매가 성공할 때마다 `bookings` 컬렉션에 레코드를 INSERT하고, 검증 단계에서 좌석별로 booking을 집계해 2건 이상인 좌석을 찾아낸다.
+Handler - Service - Repository - MongoDB의 layered 구조에 Redis와 worker pool을 얹었다. 의존성은 전부 인터페이스로 두고 프레임워크 없이 `main.go`에서 직접 조립한다. 좌석 점유를 판정하고 예매를 확정하는 로직은 전부 Service의 `Book()`에 모여 있어, 네 단계에 걸친 개선이 이 `Book()` 안에서만 일어나고 나머지 계층은 거의 그대로 유지된다. Repository는 저장소별로 나눠 `seat`·`booking`·`show`는 MongoDB를, `seat_claim`은 Redis를 담당한다.
 
 ## API
 
@@ -89,18 +87,26 @@ oversell을 감지하는 방식이 이 프로젝트의 한 축이다. 좌석의 
 
 ## 실행
 
-MongoDB는 Docker로, 서버는 로컬에서 띄운다.
+MongoDB와 Redis는 Docker로, 서버는 로컬에서 띄운다. 접속 정보는 `.env`로 주입한다(`.env.example` 참고).
 
 ```
+cp .env.example .env
 docker compose up -d
 go run ./cmd/server/main.go
 ```
 
-부하 재현은 `loadtest` 안의 shell 스크립트를 통해 수행한다.
+단일 부하 재현은 `loadtest`의 shell 스크립트로 한다. 실행 중인 서버에 한 번 부하를 주고 결과를 출력한다.
 
 ```
 ./loadtest/reproduce_hotspot.sh    # hotspot (한 좌석에 집중 요청 - 500개의 요청이 동시에 들어오는 시나리오)
 ./loadtest/reproduce_spread.sh     # spread (여러 좌석에 분산 - 100개 좌석에 35초간 최대 500 VU로 계속해서 요청)
+```
+
+위 [벤치마크 결과 요약](#벤치마크-결과-요약)의 median 값은 `bench/run.sh`로 재현한다. 각 단계 커밋을 자동으로 오가며 서버를 빌드·실행하고, 단계별로 5회씩 측정해 `bench/out`에 집계한다.
+
+```
+./bench/run.sh          # 전체 단계
+./bench/run.sh 3-redis  # 특정 단계만
 ```
 
 > 측정 환경은 WSL2다. k6 지연 측정에서 시계 점프로 인한 음수 시간이 일부 관찰됐는데, 중앙값/p95/처리량 같은 핵심 지표는 영향을 받지 않아 그대로 사용한다.
